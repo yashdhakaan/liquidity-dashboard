@@ -73,9 +73,10 @@ def get_liquidity_data(years, m2_shift_months):
     df = pd.DataFrame(index=master_index)
 
     # 2. FETCH MARKET DATA (YFinance)
-    tickers = ["EURUSD=X", "JPY=X", "CNY=X", "BTC-USD"] 
+    # ADDED MSTR to the tickers list
+    tickers = ["EURUSD=X", "JPY=X", "CNY=X", "BTC-USD", "MSTR"] 
     market_data = yf.download(tickers, start=start_str, progress=False)['Close']
-    market_monthly = market_data.resample('M').mean() 
+    market_monthly = market_data.resample('M').mean()
 
     # Align FX rates to the Master Index and ffill
     fx_eu = market_monthly['EURUSD=X'].reindex(df.index, method='ffill')
@@ -142,41 +143,23 @@ def get_liquidity_data(years, m2_shift_months):
     # 1. Align MSTR price to the master index
     df['MSTR_Price'] = mstr_daily.reindex(df.index, method='ffill')
     
-    # 2. Calculate MNAV (Multiple of BTC NAV)
-    # This is a simplified proxy: MSTR Price / (BTC Price * BTC Holdings per Share)
-    # Since we lack real-time share count, we proxy MNAV as MSTR Price / BTC Price,
-    # then scale it for visualization purposes, or skip the scaling and plot the raw multiple.
+    # --- NEW: MICROSTRATEGY MNAV CALCULATION (REUSING FETCHED DATA) ---
     
-    # To get the true multiple, we would need MSTR's BTC holdings and share count. 
-    # For a simple comparative chart, we can calculate the ratio (MSTR/BTC). 
-    # However, the standard MNAV calculation requires external data (like outstanding shares and net debt).
+    # 1. Access MSTR daily stock price from the initial fetch
+    # We are no longer calling yf.download again
+    mstr_daily_price = market_data['MSTR']
+    df['MSTR_Price'] = mstr_daily_price.reindex(df.index, method='ffill')
     
-    # *Simplified MNAV (Ratio):*
-    # We will use the common approach of calculating a *Relative Multiple* to BTC Price,
-    # adjusted by a constant factor for better visualization on the chart.
+    # 2. Calculate MNAV Ratio (MSTR Price / BTC Price)
+    df['MSTR_Ratio'] = df['MSTR_Price'] / df['BTC'] 
     
-    # Using a known historical MSTR/BTC ratio approximation:
-    # MSTR/BTC Ratio = MSTR Price / (BTC Price)
-    # MNAV (Multiple) = MSTR Price / BTC NAV
+    # 3. Calculate MNAV (Using the approximation divisor of 20)
+    df['MSTR_MNAV'] = df['MSTR_Ratio'] / 20 
     
-    # For simplicity, we calculate the price ratio, as the actual multiple is unstable without detailed debt/cash data.
-    # The actual multiple usually trades between 0.8 and 3.0. We will calculate the ratio MSTR/BTC and scale it.
-    
-    # MSTR MNAV Calculation (Simplified for Daily Charting):
-    # This formula calculates the ratio of MSTR to BTC, then scales it to fit a reasonable 0-5 range.
-    df['MSTR_Ratio'] = df['MSTR_Price'] / df['BTC']
-    
-    # Since the true multiple trades between 0.8 and 3.0, let's normalize the ratio by a factor
-    # derived from historical data (e.g., MSTR often trades at ~10-20x the BTC price if not normalized).
-    # We use a static divisor to approximate the 0.8-3.0 range. (Example divisor: 50)
-    # **NOTE:** You may need to adjust the `100` divisor based on your chart's scale.
-    df['MSTR_MNAV'] = df['MSTR_Ratio'] / 100 
-    
-    # Fill any remaining NaNs with the last known value for MNAV
     df['MSTR_MNAV'] = df['MSTR_MNAV'].ffill() 
 
-    # FINAL CLEANUP: ...
-    return df.dropna(subset=['Global_M2', 'Global_Assets', 'MSTR_MNAV'], how='all')
+    # FINAL CLEANUP: MSTR_MNAV should NOT be in the dropna subset
+    return df.dropna(subset=['Global_M2', 'Global_Assets'], how='all')
 
 # --- RENDER CHART ---
 st.write(f"Fetching live data for the last {lookback_years} years...")
