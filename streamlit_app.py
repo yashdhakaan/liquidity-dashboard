@@ -40,66 +40,69 @@ with st.sidebar:
     st.markdown("🟥 **CB Assets:** Central Bank Balance Sheets")
     st.markdown("🟧 **Bitcoin:** Price in USD")
 
-# --- DATA ENGINE ---
+# --- DATA ENGINE (REVISED FOR ROBUST FFILL) ---
 @st.cache_data(ttl=43200) # Cache for 12 hours
 def get_liquidity_data(years):
     start_date = pd.Timestamp.now() - pd.DateOffset(years=years)
     start_str = start_date.strftime('%Y-%m-%d')
+    
+    # 1. CREATE A MASTER MONTHLY INDEX (The Core Fix)
+    # This guarantees the DataFrame spans the entire period, even if data is missing.
+    today = pd.Timestamp.now()
+    master_index = pd.date_range(start=start_date, end=today, freq='M')
+    df = pd.DataFrame(index=master_index)
 
-    # 1. FETCH MARKET DATA (YFinance)
+    # 2. FETCH MARKET DATA (YFinance)
     tickers = ["EURUSD=X", "JPY=X", "CNY=X", "BTC-USD"] 
     market_data = yf.download(tickers, start=start_str, progress=False)['Close']
-    # Use mean() for smoothing and consistency with monthly data
     market_monthly = market_data.resample('M').mean() 
 
-    # 2. FETCH MACRO DATA (FRED)
-    try:
-        # M2 Supply (Billions or Local Currency)
-        m2_us = fred.get_series('M2SL', observation_start=start_str)
-        m2_eu = fred.get_series('MANMM101EZM189S', observation_start=start_str)
-        m2_jp = fred.get_series('MANMM101JPM189S', observation_start=start_str)
-        m2_cn = fred.get_series('MANMM101CNM189S', observation_start=start_str)
-        
-        # Central Bank Assets (Millions or Local Units)
-        cb_fed = fred.get_series('WALCL', observation_start=start_str)
-        cb_ecb = fred.get_series('ECBASSETSW', observation_start=start_str)
-        cb_boj = fred.get_series('JPNASSETS', observation_start=start_str)
-    except Exception as e:
-        # st.error(f"Error fetching FRED Data: {e}") # Suppress error to avoid clutter
-        return None
-
-    # 3. NORMALIZE TO USD TRILLIONS
-    df = pd.DataFrame(index=m2_us.index)
-    
-    # Currencies aligned to monthly data (ffill handles FX data gaps)
+    # Align FX rates to the Master Index and ffill
     fx_eu = market_monthly['EURUSD=X'].reindex(df.index, method='ffill')
     fx_jp = market_monthly['JPY=X'].reindex(df.index, method='ffill')
     fx_cn = market_monthly['CNY=X'].reindex(df.index, method='ffill')
 
-    # --- GLOBAL M2 CALCULATION (WHITE LINE) ---
-    # CRITICAL FIX: Add .ffill() to each component to carry the last known value forward
-    us_val = (m2_us / 1000).ffill() 
-    eu_val = ((m2_eu * fx_eu) / 1000).ffill()
-    jp_val = ((m2_jp / fx_jp) / 1000).ffill() 
-    cn_val = ((m2_cn / fx_cn) / 1000).ffill() 
+    # 3. FETCH & PRE-PROCESS MACRO DATA (FRED)
+    try:
+        # All series are fetched, then immediately aligned to the Master Index and ffilled
+        
+        # M2 Supply (Billions or Local Currency)
+        m2_us = fred.get_series('M2SL', observation_start=start_str).reindex(df.index, method='ffill')
+        m2_eu = fred.get_series('MANMM101EZM189S', observation_start=start_str).reindex(df.index, method='ffill')
+        m2_jp = fred.get_series('MANMM101JPM189S', observation_start=start_str).reindex(df.index, method='ffill')
+        m2_cn = fred.get_series('MANMM101CNM189S', observation_start=start_str).reindex(df.index, method='ffill')
+        
+        # Central Bank Assets (Millions or Local Units)
+        cb_fed = fred.get_series('WALCL', observation_start=start_str).resample('M').ffill().reindex(df.index, method='ffill')
+        cb_ecb = fred.get_series('ECBASSETSW', observation_start=start_str).resample('M').ffill().reindex(df.index, method='ffill')
+        cb_boj = fred.get_series('JPNASSETS', observation_start=start_str).resample('M').ffill().reindex(df.index, method='ffill')
+    except Exception as e:
+        st.warning(f"Error fetching data from FRED. Check logs or key.")
+        return None
 
-    # Summing the forward-filled components
+    # 4. CALCULATE TOTALS (USD TRILLIONS)
+
+    # --- GLOBAL M2 CALCULATION (WHITE LINE) ---
+    us_val = m2_us / 1000
+    eu_val = (m2_eu * fx_eu) / 1000
+    jp_val = (m2_jp / fx_jp) / 1000
+    cn_val = (m2_cn / fx_cn) / 1000
+
+    # Summing the components. Since all individual series were already ffilled, we only fill any initial NaNs with 0.
     df['Global_M2'] = us_val.fillna(0) + eu_val.fillna(0) + jp_val.fillna(0) + cn_val.fillna(0)
 
     # --- CB ASSETS CALCULATION (RED LINE) ---
-    # CRITICAL FIX: Add .ffill() to each component
-    fed_assets = (cb_fed.resample('M').ffill() / 1_000_000).ffill() 
-    ecb_assets = ((cb_ecb.resample('M').ffill() * fx_eu) / 1_000_000).ffill()
-    boj_assets = ((cb_boj.resample('M').ffill() * 0.0001) / fx_jp).ffill() 
+    fed_assets = cb_fed / 1_000_000
+    ecb_assets = (cb_ecb * fx_eu) / 1_000_000
+    boj_assets = (cb_boj * 0.0001) / fx_jp # Note: BOJ is in Yen, not millions
 
-    # Summing the forward-filled components
     df['Global_Assets'] = fed_assets.fillna(0) + ecb_assets.fillna(0) + boj_assets.fillna(0)
     
     # --- BITCOIN DATA ---
     df['BTC'] = market_monthly['BTC-USD'].reindex(df.index, method='ffill')
 
-    # FINAL CLEANUP: Only drop rows where both M2 and Assets are missing (very rare)
-    return df.dropna(subset=['Global_M2', 'Global_Assets'])
+    # FINAL CLEANUP: Remove any rows at the very start where no data existed yet
+    return df.dropna(subset=['Global_M2', 'Global_Assets'], how='all')
 
 # --- RENDER CHART ---
 st.write(f"Fetching live data for the last {lookback_years} years...")
