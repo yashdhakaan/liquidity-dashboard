@@ -100,7 +100,14 @@ def get_liquidity_data(years):
     # Bitcoin Data
     df['BTC'] = market_monthly['BTC-USD'].reindex(df.index, method='ffill')
 
-    return df.dropna()
+    # NEW CODE (More Robust)
+    # Step 1: Forward-fill any NaN values within the series
+    df = df.ffill()
+    
+    # Step 2: Drop only the rows where the original data started (likely the beginning)
+    # We drop rows only if the Global M2 or Global Assets columns are still NaN,
+    # which indicates a fundamental data failure we can't ignore.
+    return df.dropna(subset=['Global_M2', 'Global_Assets'], how='all')
 
 # --- RENDER CHART ---
 st.write(f"fetching live data for the last {lookback_years} years...")
