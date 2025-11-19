@@ -35,6 +35,16 @@ with st.sidebar:
     lookback_years = st.slider("Timeframe (Years)", 3, 15, 8)
     log_scale = st.checkbox("Log Scale (Bitcoin)", value=True)
     st.markdown("---")
+    
+    # NEW SLIDER FOR SHIFTING M2
+    m2_shift_months = st.slider(
+        "M2 Time Shift (Months)", 
+        -24, 
+        24, 
+        0, # Default to 0 (no shift)
+        help="Shift M2 ahead (positive) or lag (negative) relative to other lines."
+    )
+    st.markdown("---")
     st.markdown("**Metric Guide:**")
     st.markdown("⬜ **Global M2:** Total Cash Supply")
     st.markdown("🟥 **CB Assets:** Central Bank Balance Sheets")
@@ -120,11 +130,11 @@ def get_liquidity_data(years):
 # --- RENDER CHART ---
 st.write(f"Fetching live data for the last {lookback_years} years...")
 
-# Use try/except in the main render loop to catch potential errors from data engine
 try:
-    df = get_liquidity_data(lookback_years)
+    # PASS THE NEW SHIFT VALUE TO THE DATA FUNCTION
+    df = get_liquidity_data(lookback_years, m2_shift_months)
 
-    if df is not None:
+    if df is not None and not df.empty:
         fig = go.Figure()
 
         # Trace 1: M2 (White) - Left Axis
