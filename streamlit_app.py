@@ -126,4 +126,31 @@ try:
         # Trace 3: Bitcoin (Orange) - Right Axis 2
         fig.add_trace(go.Scatter(
             x=df.index, y=df['BTC'], name="Bitcoin ($)",
-            line=dict(color='#ffa500', width
+            line=dict(color='#ffa500', width=2), yaxis="y3"
+        ))
+
+        # Complex Layout for 3 Axes
+        fig.update_layout(
+            template="plotly_dark", height=600, hovermode="x unified",
+            yaxis=dict(
+                title="Global M2 ($T)", showgrid=False, title_font=dict(color="white")
+            ),
+            yaxis2=dict(
+                title="CB Assets ($T)", overlaying="y", side="right", showgrid=True,
+                gridcolor="#333", title_font=dict(color="#ff4b4b"), tickfont=dict(color="#ff4b4b")
+            ),
+            yaxis3=dict(
+                title="Bitcoin ($)", overlaying="y", side="right", position=0.95,
+                type="log" if log_scale else "linear",
+                title_font=dict(color="#ffa500"), tickfont=dict(color="#ffa500"), showgrid=False
+            ),
+            xaxis=dict(domain=[0, 0.9]),
+            legend=dict(orientation="h", y=1.1, x=0)
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.error("Could not load data. Check FRED API key and the 'Raw Data' table for source failures.")
+
+except Exception as e:
+    st.error(f"An unexpected error occurred during rendering: {e}")
