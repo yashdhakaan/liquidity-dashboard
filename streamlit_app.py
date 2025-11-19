@@ -105,10 +105,14 @@ def get_liquidity_data(years):
     
     df['Global_Assets'] = fed_assets.fillna(0) + ecb_assets.fillna(0) + boj_assets.fillna(0)
     
-   # --- BITCOIN DATA ---
-    # market_data is the daily data we fetched at the start. 
-    # Use the daily data reindexed onto the master monthly index, filling forward to today.
-    df['BTC'] = market_data['BTC-USD'].reindex(df.index, method='ffill')
+    # --- BITCOIN DATA (FIXED FOR CURRENT DATE) ---
+    
+    # 1. Fetch Bitcoin DAILY data from the start date to today
+    btc_daily = yf.download("BTC-USD", start=start_str, progress=False)['Close']
+    
+    # 2. Align this daily data to the master monthly index, filling forward to the present.
+    # This forces the line to use the latest price up to the final date in the index.
+    df['BTC'] = btc_daily.reindex(df.index, method='ffill')
 
     # FINAL CLEANUP: Remove any rows at the very start where no data existed yet
     return df.dropna(subset=['Global_M2', 'Global_Assets'], how='all')
