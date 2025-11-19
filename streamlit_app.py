@@ -142,18 +142,44 @@ try:
         # Complex Layout for 3 Axes
         fig.update_layout(
             template="plotly_dark", height=600, hovermode="x unified",
+            
+            # --- Y-AXIS 1 (Global M2 - White Line) ---
             yaxis=dict(
-                title="Global M2 ($T)", showgrid=False, title_font=dict(color="white")
+                title="Global M2 ($T)", 
+                showgrid=False, 
+                title_font=dict(color="white"),
+                # FIX: Set tickformat to force large numbers without 'M' or 'K'
+                # The tickformat will display numbers with a comma separator and no decimal places
+                tickformat = ',.0f' 
             ),
+            
+            # --- Y-AXIS 2 (CB Assets - Red Line) ---
             yaxis2=dict(
-                title="CB Assets ($T)", overlaying="y", side="right", showgrid=True,
-                gridcolor="#333", title_font=dict(color="#ff4b4b"), tickfont=dict(color="#ff4b4b")
+                title="CB Assets ($T)", 
+                overlaying="y", 
+                side="right", 
+                showgrid=True,
+                gridcolor="#333", 
+                title_font=dict(color="#ff4b4b"), 
+                tickfont=dict(color="#ff4b4b"),
+                # FIX: Apply the same large number formatting
+                tickformat = ',.0f'
             ),
+            
+            # --- Y-AXIS 3 (Bitcoin - Orange Line) ---
             yaxis3=dict(
-                title="Bitcoin ($)", overlaying="y", side="right", position=0.95,
+                title="Bitcoin ($)", 
+                overlaying="y", 
+                side="right", 
+                position=0.95,
                 type="log" if log_scale else "linear",
-                title_font=dict(color="#ffa500"), tickfont=dict(color="#ffa500"), showgrid=False
+                title_font=dict(color="#ffa500"), 
+                tickfont=dict(color="#ffa500"), 
+                showgrid=False,
+                # Bitcoin uses K (Thousands) and no fixed format
+                tickformat = '.3s' 
             ),
+            
             xaxis=dict(domain=[0, 0.9]),
             legend=dict(orientation="h", y=1.1, x=0)
         )
