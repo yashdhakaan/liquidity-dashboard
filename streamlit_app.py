@@ -50,9 +50,10 @@ with st.sidebar:
     st.markdown("🟥 **CB Assets:** Central Bank Balance Sheets")
     st.markdown("🟧 **Bitcoin:** Price in USD")
 
-# --- DATA ENGINE (REVISED FOR ROBUST FFILL) ---
-@st.cache_data(ttl=43200) # Cache for 12 hours
-def get_liquidity_data(years):
+# --- DATA ENGINE (WITH SHIFT PARAMETER) ---
+# NOTE: Added 'm2_shift_months' to the function signature
+@st.cache_data(ttl=43200) 
+def get_liquidity_data(years, m2_shift_months): 
     start_date = pd.Timestamp.now() - pd.DateOffset(years=years)
     start_str = start_date.strftime('%Y-%m-%d')
     
@@ -100,8 +101,9 @@ def get_liquidity_data(years):
     eu_val = ((m2_eu * fx_eu) / 1_000_000) 
     jp_val = ((m2_jp / fx_jp) / 1_000_000) 
     cn_val = ((m2_cn * fx_cn) / 1_000_000) 
-
-    df['Global_M2'] = us_val.fillna(0) + eu_val.fillna(0) + jp_val.fillna(0) + cn_val.fillna(0)
+    
+    # --- APPLY PANDAS .SHIFT() HERE! ---
+    df['Global_M2'] = (us_val.fillna(0) + eu_val.fillna(0) + jp_val.fillna(0) + cn_val.fillna(0)).shift(periods=m2_shift_months)
 
     # --- CB ASSETS CALCULATION (RED LINE) ---
     # US WALCL is in Millions -> / 1,000,000 (to Trillions)
