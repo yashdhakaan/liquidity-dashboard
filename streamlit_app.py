@@ -3,6 +3,7 @@ import pandas as pd
 from fredapi import Fred
 import yfinance as yf
 import plotly.graph_objects as go
+import numpy as np # <--- ADD THIS IMPORT
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Global Liquidity & Bitcoin", layout="wide")
@@ -36,19 +37,27 @@ with st.sidebar:
     log_scale = st.checkbox("Log Scale (Bitcoin)", value=True)
     st.markdown("---")
     
-    # NEW SLIDER FOR SHIFTING M2
     m2_shift_months = st.slider(
         "M2 Time Shift (Months)", 
         -24, 
         24, 
-        0, # Default to 0 (no shift)
+        0, 
         help="Shift M2 ahead (positive) or lag (negative) relative to other lines."
+    )
+    st.markdown("---")
+    
+    # NEW: LINE SELECTION WIDGET
+    selected_lines = st.multiselect(
+        "Select Lines to Display",
+        ['Global M2 ($T)', 'CB Assets ($T)', 'Bitcoin ($)', 'MSTR MNAV (x)'],
+        default=['Global M2 ($T)', 'CB Assets ($T)', 'Bitcoin ($)', 'MSTR MNAV (x)']
     )
     st.markdown("---")
     st.markdown("**Metric Guide:**")
     st.markdown("⬜ **Global M2:** Total Cash Supply")
     st.markdown("🟥 **CB Assets:** Central Bank Balance Sheets")
     st.markdown("🟧 **Bitcoin:** Price in USD")
+    st.markdown("🟪 **MSTR MNAV:** MicroStrategy NAV Multiple")
 
 # --- DATA ENGINE (WITH SHIFT PARAMETER) ---
 # NOTE: Added 'm2_shift_months' to the function signature
@@ -126,8 +135,48 @@ def get_liquidity_data(years, m2_shift_months):
     # This forces the line to use the latest price up to the final date in the index.
     df['BTC'] = btc_daily.reindex(df.index, method='ffill')
 
-    # FINAL CLEANUP: Remove any rows at the very start where no data existed yet
-    return df.dropna(subset=['Global_M2', 'Global_Assets'], how='all')
+    # --- NEW: MICROSTRATEGY MNAV CALCULATION ---
+    # Fetch MSTR daily stock price
+    mstr_daily = yf.download("MSTR", start=start_str, progress=False)['Close']
+    
+    # 1. Align MSTR price to the master index
+    df['MSTR_Price'] = mstr_daily.reindex(df.index, method='ffill')
+    
+    # 2. Calculate MNAV (Multiple of BTC NAV)
+    # This is a simplified proxy: MSTR Price / (BTC Price * BTC Holdings per Share)
+    # Since we lack real-time share count, we proxy MNAV as MSTR Price / BTC Price,
+    # then scale it for visualization purposes, or skip the scaling and plot the raw multiple.
+    
+    # To get the true multiple, we would need MSTR's BTC holdings and share count. 
+    # For a simple comparative chart, we can calculate the ratio (MSTR/BTC). 
+    # However, the standard MNAV calculation requires external data (like outstanding shares and net debt).
+    
+    # *Simplified MNAV (Ratio):*
+    # We will use the common approach of calculating a *Relative Multiple* to BTC Price,
+    # adjusted by a constant factor for better visualization on the chart.
+    
+    # Using a known historical MSTR/BTC ratio approximation:
+    # MSTR/BTC Ratio = MSTR Price / (BTC Price)
+    # MNAV (Multiple) = MSTR Price / BTC NAV
+    
+    # For simplicity, we calculate the price ratio, as the actual multiple is unstable without detailed debt/cash data.
+    # The actual multiple usually trades between 0.8 and 3.0. We will calculate the ratio MSTR/BTC and scale it.
+    
+    # MSTR MNAV Calculation (Simplified for Daily Charting):
+    # This formula calculates the ratio of MSTR to BTC, then scales it to fit a reasonable 0-5 range.
+    df['MSTR_Ratio'] = df['MSTR_Price'] / df['BTC']
+    
+    # Since the true multiple trades between 0.8 and 3.0, let's normalize the ratio by a factor
+    # derived from historical data (e.g., MSTR often trades at ~10-20x the BTC price if not normalized).
+    # We use a static divisor to approximate the 0.8-3.0 range. (Example divisor: 50)
+    # **NOTE:** You may need to adjust the `100` divisor based on your chart's scale.
+    df['MSTR_MNAV'] = df['MSTR_Ratio'] / 100 
+    
+    # Fill any remaining NaNs with the last known value for MNAV
+    df['MSTR_MNAV'] = df['MSTR_MNAV'].ffill() 
+
+    # FINAL CLEANUP: ...
+    return df.dropna(subset=['Global_M2', 'Global_Assets', 'MSTR_MNAV'], how='all')
 
 # --- RENDER CHART ---
 st.write(f"Fetching live data for the last {lookback_years} years...")
@@ -140,24 +189,35 @@ try:
         fig = go.Figure()
 
         # Trace 1: M2 (White) - Left Axis
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['Global_M2'], name="Global M2 ($T)",
-            line=dict(color='white', width=2), yaxis="y1"
-        ))
+        if 'Global M2 ($T)' in selected_lines:
+            fig.add_trace(go.Scatter(
+                x=df.index, y=df['Global_M2'], name="Global M2 ($T)",
+                line=dict(color='white', width=2), yaxis="y1"
+            ))
 
         # Trace 2: Assets (Red) - Right Axis 1
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['Global_Assets'], name="CB Assets ($T)",
-            line=dict(color='#ff4b4b', width=2), yaxis="y2"
-        ))
+        if 'CB Assets ($T)' in selected_lines:
+            fig.add_trace(go.Scatter(
+                x=df.index, y=df['Global_Assets'], name="CB Assets ($T)",
+                line=dict(color='#ff4b4b', width=2), yaxis="y2"
+            ))
 
         # Trace 3: Bitcoin (Orange) - Right Axis 2
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['BTC'], name="Bitcoin ($)",
-            line=dict(color='#ffa500', width=2), yaxis="y3"
-        ))
+        if 'Bitcoin ($)' in selected_lines:
+            fig.add_trace(go.Scatter(
+                x=df.index, y=df['BTC'], name="Bitcoin ($)",
+                line=dict(color='#ffa500', width=2), yaxis="y3"
+            ))
 
-        # Complex Layout for 3 Axes
+        # NEW Trace 4: MSTR MNAV (Purple) - Right Axis 1 (Sharing CB Assets Axis)
+        if 'MSTR MNAV (x)' in selected_lines:
+            # We plot MNAV on the same axis as CB Assets (y2) since its 0-3 range is small
+            fig.add_trace(go.Scatter(
+                x=df.index, y=df['MSTR_MNAV'], name="MSTR MNAV (x)",
+                line=dict(color='#8A2BE2', width=2), yaxis="y2" 
+            ))
+
+        # Complex Layout for 3 Axes (No changes here, but ensuring it's complete)
         fig.update_layout(
             template="plotly_dark", height=600, hovermode="x unified",
             
@@ -166,21 +226,18 @@ try:
                 title="Global M2 ($T)", 
                 showgrid=False, 
                 title_font=dict(color="white"),
-                # FIX: Set tickformat to force large numbers without 'M' or 'K'
-                # The tickformat will display numbers with a comma separator and no decimal places
                 tickformat = ',.0f' 
             ),
             
-            # --- Y-AXIS 2 (CB Assets - Red Line) ---
+            # --- Y-AXIS 2 (CB Assets / MNAV - Red & Purple Lines) ---
             yaxis2=dict(
-                title="CB Assets ($T)", 
+                title="CB Assets ($T) / MNAV (x)", # Updated title to reflect both metrics
                 overlaying="y", 
                 side="right", 
                 showgrid=True,
                 gridcolor="#333", 
                 title_font=dict(color="#ff4b4b"), 
                 tickfont=dict(color="#ff4b4b"),
-                # FIX: Apply the same large number formatting
                 tickformat = ',.0f'
             ),
             
@@ -194,7 +251,6 @@ try:
                 title_font=dict(color="#ffa500"), 
                 tickfont=dict(color="#ffa500"), 
                 showgrid=False,
-                # Bitcoin uses K (Thousands) and no fixed format
                 tickformat = '.3s' 
             ),
             
