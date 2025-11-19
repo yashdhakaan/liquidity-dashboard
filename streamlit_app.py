@@ -83,19 +83,26 @@ def get_liquidity_data(years):
     # 4. CALCULATE TOTALS (USD TRILLIONS)
 
     # --- GLOBAL M2 CALCULATION (WHITE LINE) ---
+    # US M2SL is in Billions -> / 1000 (to Trillions)
     us_val = m2_us / 1000
-    eu_val = (m2_eu * fx_eu) / 1000
-    jp_val = (m2_jp / fx_jp) / 1000
-    cn_val = (m2_cn / fx_cn) / 1000
+    
+    # Non-US M2 (Millions of Local Currency) -> Convert to USD, then / 1,000,000 (to Trillions)
+    eu_val = ((m2_eu * fx_eu) / 1_000_000) 
+    jp_val = ((m2_jp / fx_jp) / 1_000_000) 
+    cn_val = ((m2_cn * fx_cn) / 1_000_000) 
 
-    # Summing the components. Since all individual series were already ffilled, we only fill any initial NaNs with 0.
     df['Global_M2'] = us_val.fillna(0) + eu_val.fillna(0) + jp_val.fillna(0) + cn_val.fillna(0)
 
     # --- CB ASSETS CALCULATION (RED LINE) ---
+    # US WALCL is in Millions -> / 1,000,000 (to Trillions)
     fed_assets = cb_fed / 1_000_000
-    ecb_assets = (cb_ecb * fx_eu) / 1_000_000
-    boj_assets = (cb_boj * 0.0001) / fx_jp # Note: BOJ is in Yen, not millions
-
+    
+    # ECB Assets are in Millions of Local Currency -> Convert to USD, then / 1,000,000 (to Trillions)
+    ecb_assets = ((cb_ecb * fx_eu) / 1_000_000)
+    
+    # BOJ JPNASSETS is in 100 Millions of Yen -> Needs conversion to USD Trillions (this conversion is complex but common)
+    boj_assets = (cb_boj * 0.0001) / fx_jp # This conversion (100M Yen to Trillions USD) is often correct for this ticker
+    
     df['Global_Assets'] = fed_assets.fillna(0) + ecb_assets.fillna(0) + boj_assets.fillna(0)
     
     # --- BITCOIN DATA ---
